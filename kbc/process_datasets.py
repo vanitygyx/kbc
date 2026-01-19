@@ -1,10 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
-import pkg_resources
 import os
 import errno
 from pathlib import Path
@@ -14,8 +7,7 @@ import numpy as np
 
 from collections import defaultdict
 
-DATA_PATH = pkg_resources.resource_filename('kbc', 'data/')
-
+DATA_PATH = "../data"
 
 def prepare_dataset(path, name):
     """
@@ -42,6 +34,12 @@ def prepare_dataset(path, name):
 
     entities_to_id = {x: i for (i, x) in enumerate(sorted(entities))}
     relations_to_id = {x: i for (i, x) in enumerate(sorted(relations))}
+    with open(name+'-entities2id.pkl', 'wb') as f:
+        pickle.dump(entities_to_id, f)
+    #np.save(name+'-entities2id.npy',entities_to_id)
+    print(name+'-entities2id has been saved')
+
+    
     print("{} entities and {} relations".format(len(entities), len(relations)))
     n_relations = len(relations)
     n_entities = len(entities)
@@ -107,13 +105,13 @@ def prepare_dataset(path, name):
 
 
 if __name__ == "__main__":
-    datasets = ['FB15K', 'WN', 'WN18RR', 'FB237', 'YAGO3-10']
+    datasets = ['WN9IMG', 'FBIMG']
     for d in datasets:
         print("Preparing dataset {}".format(d))
         try:
             prepare_dataset(
                 os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)), 'src_data', d
+                    '../src_data', d
                 ),
                 d
             )
@@ -123,4 +121,3 @@ if __name__ == "__main__":
                 print("File exists. skipping...")
             else:
                 raise
-

@@ -2,390 +2,237 @@
 
 ## 项目概述
 
-基于kbc项目架构，融合OTKGE的多模态处理能力、KRACL的图注意力编码器和ComplEx解码器，构建统一的多模态知识图谱补全框架。核心思路是通过最优传输理论对齐三种模态特征（文本、图像、结构），使用图注意力网络编码实体关系信息，最终通过ComplEx进行链接预测。
+基于kbc项目架构，融合OTKGE的多模态融合策略和KRACL的图注意力编码器，构建统一的多模态知识图谱补全框架。核心思路是直接使用OTKGE现成的多模态数据和融合方案，将多模态信息集成到KRACL的KBGAT_conv编码器中，最终通过ComplEx进行链接预测。
 
 ## 改造步骤
 
-### 阶段1：多模态数据准备与预处理
+### 阶段1：多模态数据集成（最小化修改）
 
-#### 1.1 知识图谱多模态数据收集
+#### 1.1 OTKGE多模态数据直接使用
 **技术细节**：
-- 扩展现有数据集（FB15K237、WN18RR、YAGO3-10）的多模态信息
-- 收集实体的文本描述、关联图像和结构嵌入
-- 建立实体ID到多模态资源的完整映射
+- 直接使用OTKGE现成的多模态数据（WN9IMG、FBIMG）
+- 复用OTKGE的预训练特征文件（matrix_wn_ling.npy、matrix_wn_visual.npy等）
+- 保持OTKGE的数据格式和加载方式
 
 **涉及文件**：
-- `kbc/multimodal_datasets.py` (新建)
-- `kbc/data_utils/` (新建目录)
-- `kbc/data_utils/collect_multimodal_data.py` (新建)
-- `kbc/data_utils/entity_mapping.py` (新建)
+- `kbc/datasets.py` (修改，添加多模态数据加载)
+- `kbc/data/` (新建目录，存放OTKGE数据)
 
-#### 1.2 文本特征提取模块
+### 阶段2：多模态图注意力编码器创新
+
+#### 2.1 多模态KBGAT_conv设计（核心创新）
 **技术细节**：
-- 使用预训练语言模型（BERT/RoBERTa/LLaMA）提取实体文本嵌入
-- 处理实体名称、描述、属性等多源文本信息
-- 生成标准化的768维文本向量表示
+- 基于KRACL的KBGAT_conv，集成OTKGE的多模态融合策略
+- **创新点1**：多模态实体嵌入初始化
+  - 使用OTKGE的加权融合方案：`embedding = (1-α-γ)*structural + α*visual + γ*textual`
+  - 在KBGAT_conv的forward中动态计算多模态融合嵌入
+- **创新点2**：多模态注意力机制
+  - 在attention计算中同时考虑结构、视觉、文本信息
+  - 修改`message`函数，将多模态特征融入三元组表示：`(x_i_multimodal, x_j_multimodal, edge_emb)`
+- **创新点3**：模态感知的关系变换
+  - 为不同模态设计专门的关系变换操作
+  - 实现模态特定的注意力权重学习
 
 **涉及文件**：
-- `kbc/extractors/text_extractor.py` (新建)
-- `kbc/extractors/bert_embeddings.py` (新建)
-- `kbc/extractors/llama_embeddings.py` (新建)
+- `kbc/models.py` (修改，添加MultimodalKBGAT类)
+- `kbc/encoders.py` (新建，移植并改进KBGAT_conv)
 
-#### 1.3 视觉特征提取模块
+#### 2.2 图结构构建（最小化修改）
 **技术细节**：
-- 使用CLIP模型提取实体关联图像的嵌入
-- 处理实体的多张图像，实现多图像融合策略
-- 生成768维的视觉向量表示
+- 复用kbc现有的三元组处理逻辑
+- 添加双向边构建功能
+- 集成到现有Dataset类中
 
 **涉及文件**：
-- `kbc/extractors/image_extractor.py` (新建)
-- `kbc/extractors/clip_embeddings.py` (新建)
-- `kbc/extractors/image_fusion.py` (新建)
+- `kbc/datasets.py` (修改，添加图结构构建)
+- `kbc/graph_utils.py` (新建，图处理工具函数)
 
-#### 1.4 结构特征提取模块
+### 阶段3：ComplEx解码器适配
+
+#### 3.1 多模态ComplEx模型（最小化修改）
 **技术细节**：
-- 基于现有kbc框架训练传统KGC模型（ComplEx、CP）
-- 提取实体在知识图谱结构中的嵌入表示
-- 生成与ComplEx兼容的结构向量表示
+- 基于现有ComplEx类，添加多模态编码器支持
+- 修改forward函数，集成KBGAT编码器输出
+- 保持ComplEx双线性评分函数不变
 
-**涉及文件**：
-- `kbc/extractors/structural_extractor.py` (新建)
-- `kbc/pretrain_structural.py` (新建)
-- `kbc/utils/structural_utils.py` (新建)
-
-### 阶段2：最优传输多模态对齐模块
-
-#### 2.1 Sinkhorn算法实现
-**技术细节**：
-- 移植OTKGE中的Sinkhorn-Knopp算法实现
-- 支持GPU加速的最优传输矩阵计算
-- 实现自适应正则化参数调节
-
-**涉及文件**：
-- `kbc/optimal_transport/sinkhorn.py` (新建)
-- `kbc/optimal_transport/ot_utils.py` (新建)
-- `kbc/optimal_transport/__init__.py` (新建)
-
-#### 2.2 多模态对齐层设计
-**技术细节**：
-- 实现三模态到统一嵌入空间的最优传输对齐
-- 设计可学习的传输偏移矩阵
-- 支持模态特定的缩放因子
-
-**涉及文件**：
-- `kbc/alignment/multimodal_alignment.py` (新建)
-- `kbc/alignment/ot_alignment_layer.py` (新建)
-- `kbc/alignment/modality_fusion.py` (新建)
-
-#### 2.3 对齐质量评估
-**技术细节**：
-- 实现模态间对齐质量的定量评估
-- 设计传输矩阵的可视化分析工具
-- 建立对齐效果的监控机制
-
-**涉及文件**：
-- `kbc/evaluation/alignment_metrics.py` (新建)
-- `kbc/visualization/ot_visualization.py` (新建)
-
-### 阶段3：图注意力编码器集成
-
-#### 3.1 CompGAT编码器移植
-**技术细节**：
-- 从KRACL移植CompGATv3编码器实现
-- 适配kbc的数据格式和模型接口
-- 保持关系感知的图注意力机制
-
-**涉及文件**：
-- `kbc/encoders/compgat_encoder.py` (新建)
-- `kbc/encoders/graph_attention.py` (新建)
-- `kbc/encoders/relation_operations.py` (新建)
-
-#### 3.2 图结构构建模块
-**技术细节**：
-- 将三元组数据转换为图结构表示
-- 支持双向边和逆关系的处理
-- 实现高效的邻接矩阵构建
-
-**涉及文件**：
-- `kbc/graph/graph_builder.py` (新建)
-- `kbc/graph/edge_utils.py` (新建)
-- `kbc/graph/adjacency_matrix.py` (新建)
-
-#### 3.3 注意力机制优化
-**技术细节**：
-- 实现注意力平滑机制
-- 支持多种关系变换操作（corr_new、sub、mult、rotate）
-- 优化注意力计算的内存效率
-
-**涉及文件**：
-- `kbc/attention/attention_mechanisms.py` (新建)
-- `kbc/attention/relation_transforms.py` (新建)
-- `kbc/attention/attention_utils.py` (新建)
-
-### 阶段4：ComplEx解码器增强
-
-#### 4.1 多模态ComplEx模型
-**技术细节**：
-- 扩展现有ComplEx模型，支持多模态输入
-- 集成图注意力编码器的输出
-- 保持ComplEx的双线性评分函数
-
-**涉及文件**：
-- `kbc/models.py` (修改，添加MultimodalComplEx类)
-- `kbc/decoders/complex_decoder.py` (新建)
-- `kbc/decoders/multimodal_scoring.py` (新建)
-
-#### 4.2 端到端训练框架
-**技术细节**：
-- 设计编码器-对齐层-解码器的端到端训练
-- 实现多损失函数的联合优化
-- 支持分阶段训练和微调策略
-
-**涉及文件**：
-- `kbc/training/end_to_end_trainer.py` (新建)
-- `kbc/training/loss_functions.py` (新建)
-- `kbc/training/training_strategies.py` (新建)
-
-#### 4.3 推理优化
-**技术细节**：
-- 优化多模态模型的推理效率
-- 实现批量推理和缓存机制
-- 支持增量更新的动态推理
-
-**涉及文件**：
-- `kbc/inference/multimodal_inference.py` (新建)
-- `kbc/inference/batch_inference.py` (新建)
-- `kbc/inference/caching_utils.py` (新建)
-
-### 阶段5：统一模型架构设计
-
-#### 5.1 MKBC主模型类
-**技术细节**：
-- 设计统一的多模态知识图谱补全模型类
-- 继承KBCModel接口，保持兼容性
-- 集成编码器、对齐层、解码器三大组件
-
-**涉及文件**：
-- `kbc/models.py` (修改，添加MKBC类)
-- `kbc/core/mkbc_model.py` (新建)
-- `kbc/core/model_components.py` (新建)
-
-#### 5.2 配置管理系统
-**技术细节**：
-- 设计灵活的配置管理系统
-- 支持不同模态组合的实验配置
-- 实现配置的版本控制和复现
-
-**涉及文件**：
-- `kbc/config/mkbc_config.py` (新建)
-- `kbc/config/experiment_configs/` (新建目录)
-- `kbc/config/config_utils.py` (新建)
-
-#### 5.3 模型工厂模式
-**技术细节**：
-- 实现模型的工厂模式创建
-- 支持动态模型组件的组合
-- 提供模型变体的快速切换
-
-**涉及文件**：
-- `kbc/factory/model_factory.py` (新建)
-- `kbc/factory/component_factory.py` (新建)
-
-### 阶段6：训练与优化框架
-
-#### 6.1 多阶段训练策略
-**技术细节**：
-- 设计预训练-微调的多阶段训练
-- 实现组件级别的渐进式训练
-- 支持知识蒸馏和迁移学习
-
-**涉及文件**：
-- `kbc/learn.py` (修改)
-- `kbc/training/multistage_trainer.py` (新建)
-- `kbc/training/progressive_training.py` (新建)
-
-#### 6.2 优化器增强
-**技术细节**：
-- 扩展KBCOptimizer支持多模态训练
-- 实现自适应学习率调节
-- 支持梯度累积和混合精度训练
-
-**涉及文件**：
-- `kbc/optimizers.py` (修改)
-- `kbc/optimization/adaptive_optimizers.py` (新建)
-- `kbc/optimization/mixed_precision.py` (新建)
-
-#### 6.3 正则化策略
-**技术细节**：
-- 扩展现有正则化器支持多模态
-- 实现模态平衡的正则化机制
-- 设计对齐质量的正则化项
-
-**涉及文件**：
-- `kbc/regularizers.py` (修改)
-- `kbc/regularization/multimodal_regularizers.py` (新建)
-- `kbc/regularization/alignment_regularizers.py` (新建)
-
-### 阶段7：评估与分析框架
-
-#### 7.1 多模态评估指标
-**技术细节**：
-- 扩展现有评估框架支持多模态分析
-- 实现模态贡献度的定量分析
-- 设计跨模态一致性评估
-
-**涉及文件**：
-- `kbc/datasets.py` (修改)
-- `kbc/evaluation/multimodal_metrics.py` (新建)
-- `kbc/evaluation/modality_analysis.py` (新建)
-
-#### 7.2 消融实验框架
-**技术细节**：
-- 设计系统性的消融实验框架
-- 支持单模态、双模态、三模态的对比
-- 实现组件级别的贡献分析
-
-**涉及文件**：
-- `kbc/experiments/ablation_study.py` (新建)
-- `kbc/experiments/modality_combinations.py` (新建)
-- `kbc/experiments/component_analysis.py` (新建)
-
-#### 7.3 可视化分析工具
-**技术细节**：
-- 实现嵌入空间的可视化分析
-- 设计注意力权重的可视化
-- 提供模型性能的交互式分析
-
-**涉及文件**：
-- `kbc/visualization/embedding_viz.py` (新建)
-- `kbc/visualization/attention_viz.py` (新建)
-- `kbc/visualization/performance_analysis.py` (新建)
-
-### 阶段8：实验脚本与工具
-
-#### 8.1 数据预处理流水线
-**技术细节**：
-- 编写完整的数据预处理脚本
-- 实现多模态数据的自动化处理
-- 提供数据质量检查工具
-
-**涉及文件**：
-- `scripts/preprocess_multimodal_data.sh` (新建)
-- `scripts/extract_features.py` (新建)
-- `scripts/data_quality_check.py` (新建)
-
-#### 8.2 模型训练脚本
-**技术细节**：
-- 提供标准化的训练脚本模板
-- 支持不同实验配置的快速切换
-- 实现实验结果的自动记录
-
-**涉及文件**：
-- `scripts/train_mkbc.py` (新建)
-- `scripts/run_experiments.sh` (新建)
-- `scripts/hyperparameter_search.py` (新建)
-
-#### 8.3 评估与分析脚本
-**技术细节**：
-- 提供标准化的评估脚本
-- 实现结果的自动化分析和报告
-- 支持多数据集的批量评估
-
-**涉及文件**：
-- `scripts/evaluate_mkbc.py` (新建)
-- `scripts/generate_reports.py` (新建)
-- `scripts/batch_evaluation.sh` (新建)
-
-## 核心技术架构
-
-### 整体流程设计
-```
-多模态特征提取 → 最优传输对齐 → 图注意力编码 → ComplEx解码 → 链接预测
-     ↓              ↓              ↓            ↓         ↓
-  文本/图像/结构  →  统一嵌入空间  →  关系感知表示  →  双线性评分  →  排序结果
+**核心修改**：
+```python
+def forward(self, x, multimodal_data=None):
+    # 1. 多模态图注意力编码
+    if hasattr(self, 'encoder'):
+        encoded_emb = self.encoder(x, multimodal_data)  # KBGAT输出
+        # 使用编码后的嵌入替换原始嵌入
+        lhs = encoded_emb[x[:, 0]]
+        rhs = encoded_emb[x[:, 2]]
+    else:
+        # 原始ComplEx逻辑
+        lhs = self.embeddings[0](x[:, 0])
+        rhs = self.embeddings[0](x[:, 2])
+    
+    rel = self.embeddings[1](x[:, 1])  # 关系嵌入保持不变
+    
+    # 后续ComplEx评分逻辑保持不变
+    lhs = lhs[:, :self.rank], lhs[:, self.rank:]
+    rel = rel[:, :self.rank], rel[:, self.rank:]
+    rhs = rhs[:, :self.rank], rhs[:, self.rank:]
+    
+    to_score = encoded_emb if hasattr(self, 'encoder') else self.embeddings[0].weight
+    to_score = to_score[:, :self.rank], to_score[:, self.rank:]
+    
+    return (
+        (lhs[0] * rel[0] - lhs[1] * rel[1]) @ to_score[0].transpose(0, 1) +
+        (lhs[0] * rel[1] + lhs[1] * rel[0]) @ to_score[1].transpose(0, 1)
+    ), (
+        torch.sqrt(lhs[0] ** 2 + lhs[1] ** 2),
+        torch.sqrt(rel[0] ** 2 + rel[1] ** 2),
+        torch.sqrt(rhs[0] ** 2 + rhs[1] ** 2)
+    )
 ```
 
-### 关键创新点
+**涉及文件**：
+- `kbc/models.py` (修改ComplEx类，添加MultimodalComplEx类)
 
-#### 1. 三模态最优传输对齐
-- **理论基础**：基于Wasserstein距离的最优传输理论
-- **技术实现**：Sinkhorn算法求解最优传输矩阵
-- **优势**：保持几何结构，精确对齐不同模态特征空间
+### 阶段4：训练框架集成（最小化修改）
 
-#### 2. 关系感知图注意力编码
-- **核心机制**：CompGATv3的关系感知注意力
-- **技术特点**：支持多种关系变换操作
-- **优势**：捕获复杂的实体-关系交互模式
+#### 4.1 学习脚本适配
+**技术细节**：
+- 修改现有learn.py，支持多模态模型训练
+- 集成OTKGE的训练逻辑和参数设置
+- 保持kbc原有的优化器和正则化器
 
-#### 3. 多模态ComplEx解码
-- **评分函数**：保持ComplEx的双线性评分优势
-- **多模态融合**：集成对齐后的多模态特征
-- **优势**：理论严谨，计算高效
+**涉及文件**：
+- `kbc/learn.py` (修改，添加多模态支持)
 
-### 实验设计框架
+#### 4.2 评估框架扩展
+**技术细节**：
+- 扩展现有Dataset.eval方法
+- 添加多模态数据的评估支持
+- 保持标准KGC评估指标（MRR、Hits@K）
 
-#### 基线方法对比
-- **单模态基线**：纯结构ComplEx、纯文本、纯图像
-- **双模态组合**：文本+结构、图像+结构、文本+图像
-- **三模态融合**：完整MKBC模型
-- **对比方法**：OTKGE、KRACL、传统多模态方法
+**涉及文件**：
+- `kbc/datasets.py` (修改eval方法)
 
-#### 消融实验设计
-- **编码器消融**：CompGAT vs 简单GCN vs Transformer
-- **对齐方法消融**：最优传输 vs 注意力对齐 vs 简单拼接
-- **解码器消融**：ComplEx vs ConvE vs DistMult
-- **组件贡献**：各模块对最终性能的贡献分析
+## 核心技术创新
 
-### 技术挑战与解决方案
+### 多模态KBGAT_conv架构设计
 
-#### 1. 模态维度不一致
-**挑战**：文本768维、图像768维、结构可变维度
-**解决方案**：统一投影层 + 最优传输对齐
+#### 创新点1：多模态实体表示融合
+```python
+class MultimodalKBGAT(KBGAT_conv):
+    def __init__(self, ...):
+        super().__init__(...)
+        # OTKGE风格的多模态参数
+        self.alpha = nn.Parameter(torch.tensor(0.1))  # 视觉权重
+        self.gamma = nn.Parameter(torch.tensor(0.8))  # 文本权重
+        
+    def get_multimodal_embeddings(self, structural_emb, visual_emb, textual_emb):
+        # OTKGE融合策略
+        return (1 - self.alpha - self.gamma) * structural_emb + \
+               self.alpha * visual_emb + self.gamma * textual_emb
+```
 
-#### 2. 计算复杂度控制
-**挑战**：图注意力 + 最优传输计算开销大
-**解决方案**：批量计算 + GPU优化 + 近似算法
+#### 创新点2：多模态注意力机制
+```python
+def message(self, x_i, x_j, edge_type, relation_embedding, ...):
+    # 获取多模态融合后的实体表示
+    x_i_multimodal = self.get_multimodal_embeddings(x_i, visual_i, textual_i)
+    x_j_multimodal = self.get_multimodal_embeddings(x_j, visual_j, textual_j)
+    
+    # 原KBGAT_conv注意力计算，但使用多模态特征
+    edge_emb = torch.index_select(relation_embedding, 0, edge_type)
+    triple_emb = torch.cat((x_i_multimodal, x_j_multimodal, edge_emb), dim=1)
+    
+    # 后续注意力计算保持不变
+    c = self.w_1(triple_emb)
+    b = self.leaky_relu(self.w_2(c))
+    alpha = softmax(b, index, ptr, size_i)
+    
+    return c * alpha.view(-1, 1)
+```
 
-#### 3. 训练稳定性
-**挑战**：多组件联合训练容易不稳定
-**解决方案**：分阶段训练 + 梯度裁剪 + 自适应学习率
+#### 创新点3：端到端多模态ComplEx
+```python
+class MultimodalComplEx(ComplEx):
+    def __init__(self, sizes, rank, multimodal_data, init_size=1e-3):
+        super().__init__(sizes, rank, init_size)
+        self.encoder = MultimodalKBGAT(...)
+        self.multimodal_data = multimodal_data
+        
+    def forward(self, x):
+        # 多模态图注意力编码
+        encoded_embeddings = self.encoder(x, self.multimodal_data)
+        
+        # 使用编码后的嵌入进行ComplEx评分
+        lhs = encoded_embeddings[x[:, 0]]
+        rhs = encoded_embeddings[x[:, 2]]
+        rel = self.embeddings[1](x[:, 1])
+        
+        # ComplEx双线性评分（保持不变）
+        lhs = lhs[:, :self.rank], lhs[:, self.rank:]
+        rel = rel[:, :self.rank], rel[:, self.rank:]
+        rhs = rhs[:, :self.rank], rhs[:, self.rank:]
+        
+        to_score = encoded_embeddings
+        to_score = to_score[:, :self.rank], to_score[:, self.rank:]
+        
+        return (
+            (lhs[0] * rel[0] - lhs[1] * rel[1]) @ to_score[0].transpose(0, 1) +
+            (lhs[0] * rel[1] + lhs[1] * rel[0]) @ to_score[1].transpose(0, 1)
+        ), (
+            torch.sqrt(lhs[0] ** 2 + lhs[1] ** 2),
+            torch.sqrt(rel[0] ** 2 + rel[1] ** 2),
+            torch.sqrt(rhs[0] ** 2 + rhs[1] ** 2)
+        )
+```
 
-#### 4. 模态平衡问题
-**挑战**：不同模态贡献度不平衡
-**解决方案**：自适应权重学习 + 模态特定正则化
+## 实施计划（最小化修改）
 
-### 预期效果与评估
+### 文件修改清单
 
-#### 性能提升预期
-- **MRR提升**：相比单模态基线提升10-15%
-- **Hits@K提升**：在各个K值上均有显著提升
-- **泛化能力**：在多个数据集上保持一致性能
+#### 必须修改的文件（3个）
+1. **`kbc/models.py`**：
+   - 添加MultimodalKBGAT类（基于KRACL的KBGAT_conv）
+   - 添加MultimodalComplEx类（扩展现有ComplEx）
+
+2. **`kbc/datasets.py`**：
+   - 添加多模态数据加载功能（复用OTKGE数据格式）
+   - 扩展eval方法支持多模态评估
+
+3. **`kbc/learn.py`**：
+   - 添加多模态模型的训练支持
+   - 集成OTKGE的训练参数和逻辑
+
+#### 新建文件（2个）
+1. **`kbc/encoders.py`**：移植KRACL的KBGAT_conv和相关工具函数
+2. **`kbc/graph_utils.py`**：图结构构建和处理工具
+
+### 技术优势
+
+#### 1. 最小化修改
+- 复用OTKGE现成数据和融合策略
+- 基于kbc现有架构，最小化代码变动
+- 保持ComplEx解码器的理论优势
+
+#### 2. 核心创新
+- **多模态图注意力**：首次将多模态信息集成到图注意力机制中
+- **端到端训练**：编码器-解码器联合优化
+- **模态感知注意力**：不同模态信息的差异化处理
+
+#### 3. 实验优势
+- 直接对比OTKGE（相同数据，不同编码器）
+- 直接对比KRACL（相同编码器，增加多模态）
+- 直接对比kbc baseline（相同解码器，增加编码器）
+
+### 预期效果
+
+#### 性能提升
+- **相比OTKGE**：图注意力编码器带来的结构建模优势
+- **相比KRACL**：多模态信息带来的表示学习优势  
+- **相比kbc**：编码器+多模态的双重提升
 
 #### 技术贡献
-1. **统一框架**：首个结合最优传输+图注意力+ComplEx的多模态KGC框架
-2. **理论创新**：最优传输理论在多模态KGC中的应用
-3. **实践价值**：为实际应用提供高效的多模态KGC解决方案
+1. **首个多模态图注意力KGC框架**
+2. **OTKGE+KRACL+ComplEx的有效融合**
+3. **最小化修改的工程实践方案**
 
-#### 实验验证计划
-- **数据集**：FB15K237、WN18RR、YAGO3-10的多模态版本
-- **对比方法**：OTKGE、KRACL、KG-BERT、MMKG等
-- **评估维度**：准确性、效率、可解释性、鲁棒性
-
-## 实施建议
-
-### 开发优先级
-1. **P0**：多模态数据准备、最优传输对齐、基础模型架构
-2. **P1**：图注意力编码器集成、ComplEx解码器增强
-3. **P2**：训练优化、评估框架、实验脚本
-
-### 风险控制
-- **技术风险**：分模块开发，逐步集成验证
-- **性能风险**：建立性能基线，持续监控
-- **时间风险**：设置里程碑检查点，及时调整
-
-### 质量保证
-- **代码质量**：单元测试、集成测试、性能测试
-- **实验质量**：可复现性检查、结果验证、对比分析
-- **文档质量**：API文档、使用指南、实验报告
-
-通过这个系统性的改造方案，我们将构建一个集成最优传输理论、图注意力机制和ComplEx解码的先进多模态知识图谱补全框架，为多模态KGC研究提供新的技术路径和实验平台。
+通过这个精简的改造方案，我们将以最小的代码修改量实现多模态图注意力知识图谱补全的技术创新，为多模态KGC研究提供新的技术路径。
