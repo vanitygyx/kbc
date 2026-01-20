@@ -6,10 +6,11 @@ import numpy as np
 import torch
 from torch import optim
 
-from datasets import Dataset
-from models import *
-from regularizers import *
-from optimizers import KBCOptimizer
+from .datasets import Dataset
+from .models import *
+from .models_extended import ComplEx, MultimodalComplEx
+from .regularizers import *
+from .optimizers import KBCOptimizer
 
 datasets = ['WN9IMG','FBIMG']
 
@@ -110,7 +111,33 @@ print(dataset.get_shape())
 
 model = None
 regularizer = None
-exec('model = '+args.model+'(dataset.get_shape(), args.rank, args.init)')
+
+# 特殊处理MultimodalComplEx模型
+if args.model == 'MultimodalComplEx':
+    # 获取多模态数据维度
+    multimodal_data = dataset.get_multimodal_data()
+    visual_dim = multimodal_data['visual'].shape[1]
+    textual_dim = multimodal_data['textual'].shape[1]
+    rel_dim = args.rank  # 关系维度设为rank
+    
+    model = MultimodalComplEx(
+        sizes=dataset.get_shape(),
+        rank=args.rank,
+        visual_dim=visual_dim,
+        textual_dim=textual_dim,
+        rel_dim=rel_dim,
+        init_size=args.init
+    )
+    
+    # 构建图结构
+    edge_index, edge_type = dataset.get_graph_structure()
+    train_triples = dataset.get_train()
+    model.build_graph(train_triples)
+    
+else:
+    # 原有模型创建方式
+    exec('model = '+args.model+'(dataset.get_shape(), args.rank, args.init)')
+
 exec('regularizer = '+args.regularizer+'(args.reg)')
 regularizer = [regularizer, N3(args.reg)]
 
@@ -125,7 +152,9 @@ optim_method = {
     'SGD': lambda: optim.SGD(model.parameters(), lr=args.learning_rate)
 }[args.optimizer]()
 
-optimizer = KBCOptimizer(model, regularizer, optim_method, args.batch_size)
+# 为MultimodalComplEx模型传递多模态数据
+multimodal_data = dataset.get_multimodal_data() if args.model == 'MultimodalComplEx' else None
+optimizer = KBCOptimizer(model, regularizer, optim_method, args.batch_size, multimodal_data=multimodal_data)
 
 
 def avg_both(mrrs: Dict[str, float], hits: Dict[str, torch.FloatTensor]):
@@ -144,7 +173,7 @@ def avg_both(mrrs: Dict[str, float], hits: Dict[str, torch.FloatTensor]):
 
 cur_loss = 0
 
-if args.checkpoint is not '':
+if args.checkpoint != '':
     model.load_state_dict(torch.load(os.path.join(args.checkpoint, 'checkpoint'), map_location='cuda:0'))
 
 if args.do_train:

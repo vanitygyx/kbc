@@ -5,10 +5,12 @@ import os
 import numpy as np
 import torch
 from models import KBCModel
+from graph_utils import build_graph_from_triples
 
 class Dataset(object):
     def __init__(self, data_path: str, name: str):
         self.root = os.path.join(data_path, name)
+        self.name = name
 
         self.data = {}
         for f in ['train', 'test', 'valid']:
@@ -25,6 +27,68 @@ class Dataset(object):
         inp_f = open(os.path.join(self.root, 'to_skip.pickle'), 'rb')
         self.to_skip: Dict[str, Dict[Tuple[int, int], List[int]]] = pickle.load(inp_f)
         inp_f.close()
+        
+        # 构建图结构
+        self.edge_index = None
+        self.edge_type = None
+        self._build_graph()
+        
+        # 加载多模态数据
+        self.multimodal_data = None
+        self._load_multimodal_data()
+
+    def _build_graph(self):
+        """
+        从训练数据构建图结构
+        """
+        train_triples = self.data['train']
+        self.edge_index, self.edge_type = build_graph_from_triples(
+            train_triples, self.n_entities, self.n_predicates // 2
+        )
+        
+    def _load_multimodal_data(self):
+        """
+        加载多模态特征数据
+        """
+        try:
+            if self.name in ['WN9IMG', 'FBIMG']:
+                # 加载预训练的多模态特征
+                if self.name == 'WN9IMG':
+                    visual_path = '../../pre_train/matrix_wn_visual.npy'
+                    textual_path = '../../pre_train/matrix_wn_ling.npy'
+                else:  # FBIMG
+                    visual_path = '../../pre_train/matrix_fb_visual.npy'
+                    textual_path = '../../pre_train/matrix_fb_ling.npy'
+                
+                visual_features = torch.tensor(np.load(visual_path), dtype=torch.float32)
+                textual_features = torch.tensor(np.load(textual_path), dtype=torch.float32)
+                
+                self.multimodal_data = {
+                    'visual': visual_features,
+                    'textual': textual_features
+                }
+                
+                print(f"Loaded multimodal data: visual {visual_features.shape}, textual {textual_features.shape}")
+                
+        except Exception as e:
+            print(f"Warning: Could not load multimodal data: {e}")
+            # 创建虚拟的多模态数据
+            self.multimodal_data = {
+                'visual': torch.randn(self.n_entities, 768),
+                'textual': torch.randn(self.n_entities, 768)
+            }
+
+    def get_graph_structure(self):
+        """
+        获取图结构
+        """
+        return self.edge_index, self.edge_type
+    
+    def get_multimodal_data(self):
+        """
+        获取多模态数据
+        """
+        return self.multimodal_data
 
     def get_weight(self):
         appear_list = np.zeros(self.n_entities)
@@ -73,7 +137,13 @@ class Dataset(object):
                 q[:, 0] = q[:, 2]
                 q[:, 2] = tmp
                 q[:, 1] += self.n_predicates // 2
-            ranks = model.get_ranking(q, self.to_skip[m], batch_size=500)
+            # 检查是否为MultimodalComplEx模型
+            if hasattr(model, 'encoder') and hasattr(model.encoder, 'structural_encoder'):
+                # MultimodalComplEx模型需要多模态数据
+                ranks = model.get_ranking(q, self.to_skip[m], self.multimodal_data, batch_size=500)
+            else:
+                # 原有模型
+                ranks = model.get_ranking(q, self.to_skip[m], batch_size=500)
 
             if log_result:
                 if not flag:

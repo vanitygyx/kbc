@@ -7,3 +7,5 @@ dist
 kbc/data
 **/.nfs*
 pre_train
+data
+*.pkl
