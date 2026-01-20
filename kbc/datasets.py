@@ -4,8 +4,8 @@ import os
 
 import numpy as np
 import torch
-from models import KBCModel
-from graph_utils import build_graph_from_triples
+from .models import KBCModel
+from .graph_utils import build_graph_from_triples
 
 class Dataset(object):
     def __init__(self, data_path: str, name: str):
@@ -138,9 +138,12 @@ class Dataset(object):
                 q[:, 2] = tmp
                 q[:, 1] += self.n_predicates // 2
             # 检查是否为MultimodalComplEx模型
-            if hasattr(model, 'encoder') and hasattr(model.encoder, 'structural_encoder'):
+            if hasattr(model, 'encoder'):
                 # MultimodalComplEx模型需要多模态数据
-                ranks = model.get_ranking(q, self.to_skip[m], self.multimodal_data, batch_size=500)
+                if self.multimodal_data is not None:
+                    ranks = model.get_ranking(q, self.to_skip[m], self.multimodal_data, batch_size=500)
+                else:
+                    ranks = model.get_ranking(q, self.to_skip[m], batch_size=500)
             else:
                 # 原有模型
                 ranks = model.get_ranking(q, self.to_skip[m], batch_size=500)

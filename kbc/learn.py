@@ -8,7 +8,6 @@ from torch import optim
 
 from .datasets import Dataset
 from .models import *
-from .models_extended import ComplEx, MultimodalComplEx
 from .regularizers import *
 from .optimizers import KBCOptimizer
 
@@ -116,8 +115,13 @@ regularizer = None
 if args.model == 'MultimodalComplEx':
     # 获取多模态数据维度
     multimodal_data = dataset.get_multimodal_data()
-    visual_dim = multimodal_data['visual'].shape[1]
-    textual_dim = multimodal_data['textual'].shape[1]
+    if multimodal_data is not None:
+        visual_dim = multimodal_data['visual'].shape[1]
+        textual_dim = multimodal_data['textual'].shape[1]
+    else:
+        # 默认维度
+        visual_dim = 512
+        textual_dim = 768
     rel_dim = args.rank  # 关系维度设为rank
     
     model = MultimodalComplEx(
@@ -130,9 +134,9 @@ if args.model == 'MultimodalComplEx':
     )
     
     # 构建图结构
-    edge_index, edge_type = dataset.get_graph_structure()
     train_triples = dataset.get_train()
-    model.build_graph(train_triples)
+    if train_triples is not None:
+        model.build_graph(train_triples)
     
 else:
     # 原有模型创建方式
