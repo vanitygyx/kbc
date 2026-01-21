@@ -280,7 +280,8 @@ class MultimodalKBGAT(nn.Module):
         # 结构模态的可学习嵌入
         self.structural_embeddings = nn.Embedding(sizes[0], rank * 2, sparse=True)
         
-        # 关系嵌入（共享）
+        # 关系嵌入（共享）- 需要容纳原关系+逆关系
+        # sizes[1] 已经是 n_predicates * 2，所以直接使用
         self.relation_embeddings = nn.Embedding(sizes[1], rel_dim, sparse=True)
         
         # 初始化
@@ -450,7 +451,7 @@ class MultimodalComplEx(KBCModel):
         从训练三元组构建图结构
         """
         self.edge_index, self.edge_type = build_graph_from_triples(
-            triples, self.sizes[0], self.sizes[1]
+            triples, self.sizes[0], self.sizes[1], add_inverse=False
         )
         
     def forward(self, x, multimodal_data):

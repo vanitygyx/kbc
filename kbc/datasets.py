@@ -54,11 +54,11 @@ class Dataset(object):
             if self.name in ['WN9IMG', 'FBIMG']:
                 # 加载预训练的多模态特征
                 if self.name == 'WN9IMG':
-                    visual_path = '../../pre_train/matrix_wn_visual.npy'
-                    textual_path = '../../pre_train/matrix_wn_ling.npy'
+                    visual_path = '../pre_train/matrix_wn_visual.npy'
+                    textual_path = '../pre_train/matrix_wn_ling.npy'
                 else:  # FBIMG
-                    visual_path = '../../pre_train/matrix_fb_visual.npy'
-                    textual_path = '../../pre_train/matrix_fb_ling.npy'
+                    visual_path = '../pre_train/matrix_fb_visual.npy'
+                    textual_path = '../pre_train/matrix_fb_ling.npy'
                 
                 visual_features = torch.tensor(np.load(visual_path), dtype=torch.float32)
                 textual_features = torch.tensor(np.load(textual_path), dtype=torch.float32)
