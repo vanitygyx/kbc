@@ -6,12 +6,12 @@ import numpy as np
 import torch
 from torch import optim
 
-from .datasets import Dataset
-from .models import *
-from .regularizers import *
-from .optimizers import KBCOptimizer
+from datasets import Dataset
+from models import *
+from regularizers import *
+from optimizers import KBCOptimizer
 
-datasets = ['WN9IMG','FBIMG']
+datasets = ['WN9IMG','FBIMG',"MKG-W","MKG-Y","DB15K"]
 
 parser = argparse.ArgumentParser(
     description="Multi-modal Knowledge Graph Completion"
@@ -110,7 +110,7 @@ print(dataset.get_shape())
 
 model = None
 regularizer = None
-
+device = torch.device("cuda")
 # 特殊处理MultimodalComplEx模型
 if args.model == 'MultimodalComplEx':
     # 获取多模态数据维度
@@ -125,6 +125,7 @@ if args.model == 'MultimodalComplEx':
     rel_dim = args.rank  # 关系维度设为rank
     
     model = MultimodalComplEx(
+        device = device,        
         sizes=dataset.get_shape(),
         rank=args.rank,
         visual_dim=visual_dim,
@@ -145,7 +146,7 @@ else:
 exec('regularizer = '+args.regularizer+'(args.reg)')
 regularizer = [regularizer, N3(args.reg)]
 
-device = 'cuda'
+# device = 'cuda'
 model.to(device)
 for reg in regularizer:
     reg.to(device)

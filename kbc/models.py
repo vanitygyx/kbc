@@ -6,7 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
-from .graph_utils import build_graph_from_triples
+from graph_utils import build_graph_from_triples
 
 
 class SupConLoss(nn.Module):
@@ -241,14 +241,14 @@ class MultimodalKBGAT(nn.Module):
     模态分离的多KBGAT架构
     为每个模态分别构建图注意力编码器，然后进行后融合
     """
-    def __init__(self, sizes, rank, visual_dim, textual_dim, rel_dim, dropout=0.0):
+    def __init__(self, device, sizes, rank, visual_dim, textual_dim, rel_dim, dropout=0.0):
         super(MultimodalKBGAT, self).__init__()
         self.sizes = sizes
         self.rank = rank
         self.visual_dim = visual_dim
         self.textual_dim = textual_dim
         self.rel_dim = rel_dim
-        
+        self.device = device
         # 三个独立的KBGAT编码器
         self.kbgat_structural = KBGAT_conv(
             in_channel=rank * 2, 
@@ -297,7 +297,7 @@ class MultimodalKBGAT(nn.Module):
             edge_type: 边类型 [num_edges]
             multimodal_data: 多模态数据字典 {'visual': tensor, 'textual': tensor}
         """
-        device = x.device
+        device = self.device
         
         # 获取关系嵌入
         relation_emb = self.relation_embeddings.weight
@@ -403,12 +403,13 @@ class MultimodalComplEx(KBCModel):
     多模态ComplEx模型，集成模态分离的KBGAT编码器和对比学习
     """
     def __init__(
-            self, sizes: Tuple[int, int, int], rank: int, 
+            self, device, sizes: Tuple[int, int, int], rank: int, 
             visual_dim: int, textual_dim: int, rel_dim: int,
             init_size: float = 1e-3, dropout: float = 0.0,
             temperature: float = 0.07, use_contrastive: bool = True
     ):
         super(MultimodalComplEx, self).__init__()
+        self.device = device
         self.sizes = sizes
         self.rank = rank
         self.visual_dim = visual_dim
@@ -418,6 +419,7 @@ class MultimodalComplEx(KBCModel):
 
         # 多模态KBGAT编码器
         self.encoder = MultimodalKBGAT(
+            device=device,
             sizes=sizes,
             rank=rank,
             visual_dim=visual_dim,
@@ -461,7 +463,7 @@ class MultimodalComplEx(KBCModel):
             x: 三元组 [batch_size, 3]
             multimodal_data: 多模态数据 {'visual': tensor, 'textual': tensor}
         """
-        device = x.device
+        device = self.device
         
         # 确保图结构在正确的设备上
         if self.edge_index is not None:

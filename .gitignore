@@ -8,4 +8,6 @@ kbc/data
 **/.nfs*
 pre_train
 data
+src_data
 *.pkl
+*.log

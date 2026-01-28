@@ -4,8 +4,8 @@ import os
 
 import numpy as np
 import torch
-from .models import KBCModel
-from .graph_utils import build_graph_from_triples
+from models import KBCModel
+from graph_utils import build_graph_from_triples
 
 class Dataset(object):
     def __init__(self, data_path: str, name: str):
@@ -51,17 +51,29 @@ class Dataset(object):
         加载多模态特征数据
         """
         try:
-            if self.name in ['WN9IMG', 'FBIMG']:
+            if self.name in ['WN9IMG', 'FBIMG',"MKG-W","MKG-Y","DB15K"]:
                 # 加载预训练的多模态特征
                 if self.name == 'WN9IMG':
                     visual_path = '../pre_train/matrix_wn_visual.npy'
                     textual_path = '../pre_train/matrix_wn_ling.npy'
-                else:  # FBIMG
+                elif self.name == 'FBIMG':  
                     visual_path = '../pre_train/matrix_fb_visual.npy'
                     textual_path = '../pre_train/matrix_fb_ling.npy'
-                
-                visual_features = torch.tensor(np.load(visual_path), dtype=torch.float32)
-                textual_features = torch.tensor(np.load(textual_path), dtype=torch.float32)
+                elif self.name == 'MKG-W':  
+                    visual_path = '../pre_train/MKG-W-visual.pth'
+                    textual_path = '../pre_train/MKG-W-textual.pth'
+                elif self.name == 'MKG-Y': 
+                    visual_path = '../pre_train/MKG-Y-visual.pth'
+                    textual_path = '../pre_train/MKG-Y-textual.pth'
+                else:
+                    visual_path = '../pre_train/DB15K-visual.pth'
+                    textual_path = '../pre_train/DB15K-textual.pth'
+                if self.name in ['MKG-W','MKG-Y','DB15K']:
+                    visual_features = torch.load(visual_path)
+                    textual_features = torch.load(textual_path)
+                else:
+                    visual_features = torch.tensor(np.load(visual_path), dtype=torch.float32)
+                    textual_features = torch.tensor(np.load(textual_path), dtype=torch.float32)
                 
                 self.multimodal_data = {
                     'visual': visual_features,
